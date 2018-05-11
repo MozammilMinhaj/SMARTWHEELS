@@ -2,6 +2,10 @@
 #include <Servo.h>
 
 #define Pi 3.14
+//Steering Servo degree
+#define MAX_LEFT 80
+#define CENTER 100
+#define MAX_RIGHT 120
 
 AF_DCMotor motorLeft(1);
 AF_DCMotor motorRight(2);
@@ -13,24 +17,21 @@ Servo ultraSonic_servo;
 const byte btPin = 50;
 boolean btConnected = false;
 
-
 //ultrasonic variables
-int trigPin = 38, echoPin = 40, distance, rightDistance, leftDistance;
+int trigPin = 38, echoPin = 40, distance, rightDistance, leftDistance, d1, d2, d3, aDistance;
 long pingTime;
 
 //RGB LED variables
-int headLight = 0,prevRGBStatus=0;
-//int hRedPin = 26, hGreenPin = 24, hBluePin = 22;
-//int dRedPin = 32, dGreenPin = 30, dBluePin = 28;
-int hRedPin = 32, hGreenPin = 30, hBluePin = 28;
-int dRedPin = 26, dGreenPin = 24, dBluePin = 22;
+int headLight = 0, prevRGBStatus = 0;
+int hRedPin = 26, hGreenPin = 24, hBluePin = 22;
+int dRedPin = 34, dGreenPin = 32, dBluePin = 30;
 
 //Mode variables
 int setManMode = 0, setAutoMode = 0, flag = 0;
 char command;
 
 //Loop variables & others
-int i, servo_pos = 90;
+int i, j, servo_pos = CENTER;
 
 //GPS variables
 int gpsStatus, dotStatus, lonPos;
@@ -53,10 +54,12 @@ double currentDir;
 
 //classifyReading variables
 int dataStatus, gCount, mCount, gBoundary, mBoundary;
+int mBegin, gBegin, dot1, dot2;
 String data;
 
 //function declaration
 int measureDistance();
+int avgDistance();
 void printDistance(int d);
 void moveForward();
 void moveBackward();
@@ -66,6 +69,8 @@ void driveToTarget(double steerAngle);
 void doNotMove();
 void manual();
 void automatic();
+int checkMode();
+void checkBtConnection();
 void dodgeObstacle();
 void readGPS();
 void readMagnetometer();
@@ -78,8 +83,8 @@ void rgbHeadLightOff();               //Headlight off
 void rgbHeadLightToggle();            //Headlight color : White
 void rgbObsDetected();                //Headlight color : Red
 void rgbGpsData();                    //Data Indicator color : Green when gps data is received
-void rgbMagData();                    //Data Indicator color : Magenta when Magnetometer data is received
-void rgbDataIndicator(int rgbStatus); //Data Indicator color : White, Blue, Red, Orange, Yellow
+void rgbMagData();                    //Data Indicator color : Magenta when magnetometer data is received
+void rgbDataIndicator(int rgbStatus); //Data Indicator color : Red, White, Blue, Cyan, Green, Yellow
 
 int measureDistance()
 {
@@ -95,6 +100,15 @@ int measureDistance()
   return tempDistance;
 }
 
+int avgDistance()
+{
+  d1 = measureDistance();
+  d2 = measureDistance();
+  d3 = measureDistance();
+  aDistance = (d1 + d2 + d3) / 3;
+  return aDistance;
+}
+
 void printDistance(int d)
 {
   Serial.print("The Distance of object is : ");
@@ -104,7 +118,7 @@ void printDistance(int d)
 
 void moveForward()
 {
-  servo_pos = 90;
+  servo_pos = CENTER;
   steering_servo.write(servo_pos);
   motorRight.run(FORWARD);
   motorRight.setSpeed(255);
@@ -114,7 +128,7 @@ void moveForward()
 
 void moveBackward()
 {
-  servo_pos = 90;
+  servo_pos = CENTER;
   steering_servo.write(servo_pos);
   motorRight.run(BACKWARD);
   motorRight.setSpeed(255);
@@ -129,7 +143,7 @@ void hardRightTurn()
   motorRight.run(FORWARD);
   motorRight.setSpeed(255);
 
-  for (i = servo_pos; i < 110; i += 6)
+  for (i = servo_pos; i < MAX_RIGHT; i += 6)
   {
     steering_servo.write(i);
     servo_pos = i;
@@ -144,7 +158,7 @@ void hardLeftTurn()
   motorLeft.run(FORWARD);
   motorLeft.setSpeed(255);
 
-  for (i = servo_pos; i > 70; i -= 6)
+  for (i = servo_pos; i > MAX_LEFT; i -= 6)
   {
     steering_servo.write(i);
     servo_pos = i;
@@ -168,22 +182,22 @@ void driveToTarget(double steerAngle)
 
 void doNotMove()
 {
-  servo_pos = 90;
+  servo_pos = CENTER;
   steering_servo.write(servo_pos);
-  ultraSonic_servo.write(servo_pos);
+  ultraSonic_servo.write(90);
   motorRight.run(RELEASE);
   motorLeft.run(RELEASE);
 }
 
 void manual()
 {
-  Serial.println("Car is in manual Mode");
+  Serial.println("Car is in Manual Mode");
   rgbDataIndicator(1);
-  prevRGBStatus=1;
+  prevRGBStatus = 1;
   setManMode = 1;
   doNotMove();
-  servo_pos = 90;
-  ultraSonic_servo.write(servo_pos);
+  servo_pos = CENTER;
+  ultraSonic_servo.write(90);
   steering_servo.write(servo_pos);
 
   while (setManMode && !setAutoMode)
@@ -191,53 +205,46 @@ void manual()
     if ( digitalRead(btPin) == HIGH)
     {
       btConnected = true;
-      command = Serial.read();
-      switch (command)
+      if (Serial1.available() > 0)
       {
-        case 'F' : Serial.println("Moving Forward ");
-          moveForward();
-          break;
-        case 'B' : Serial.println("Moving Backward ");
-          moveBackward();
-          break;
-        case 'L' : Serial.println("Moving Left ");
-          hardLeftTurn();
-          break;
-        case 'R' : Serial.println("Moving Right ");
-          hardRightTurn();
-          break;
-        case 'S' : Serial.println("Stopped");
-          doNotMove();
-          break;
-        case 'O' : Serial.println("Lights ON");
-          rgbHeadLightOn();
-          break;
-        case 'o' : Serial.println("Lights OFF");
-          rgbHeadLightOff();
-          break;
-        case 'A' : setAutoMode = 1; setManMode = 0;
-          break;
-        case 'M' : setAutoMode = 0; setManMode = 1;
-          break;
-        default: Serial.println("Waiting for instructions... ");
-          rgbHeadLightToggle();
+        command = Serial1.read();
+        switch (command)
+        {
+          case 'F' : Serial.println("Moving Forward ");
+            moveForward();
+            break;
+          case 'B' : Serial.println("Moving Backward ");
+            moveBackward();
+            break;
+          case 'L' : Serial.println("Moving Left ");
+            hardLeftTurn();
+            break;
+          case 'R' : Serial.println("Moving Right ");
+            hardRightTurn();
+            break;
+          case 'S' : Serial.println("Stopped");
+            doNotMove();
+            break;
+          case 'O' : Serial.println("Lights ON");
+            rgbHeadLightOn();
+            break;
+          case 'o' : Serial.println("Lights OFF");
+            rgbHeadLightOff();
+            break;
+          case 'A' : setAutoMode = 1; setManMode = 0; return;
+            break;
+          case 'M' : setAutoMode = 0; setManMode = 1;
+            break;
+        }
+        rgbHeadLightToggle();
       }
-      delay(400);
+      Serial.println("Waiting for instructions... ");
+      distance = avgDistance();
+      printDistance(distance);
     }
     else
     {
-      rgbDataIndicator(5);
-      doNotMove();
-      btConnected = false;
-      Serial.println("Bluetooth is Disconnected : Connecting...");
-      while (!btConnected)
-      {
-        if ( digitalRead(btPin) == HIGH)
-        {
-          btConnected = true;
-          rgbDataIndicator(prevRGBStatus);
-        }
-      }
+      checkBtConnection();
     }
   }
 }
@@ -246,13 +253,13 @@ void automatic()
 {
   Serial.println("Car is in Automatic Mode");
   rgbDataIndicator(2);
-  prevRGBStatus=2;
+  prevRGBStatus = 2;
   setAutoMode = 1;
   doNotMove();
   destSet = 0;
   gpsInitialized = 0;
-  servo_pos = 90;
-  ultraSonic_servo.write(servo_pos);
+  servo_pos = CENTER;
+  ultraSonic_servo.write(90);
   steering_servo.write(servo_pos);
 
   while (setAutoMode && !setManMode)
@@ -260,9 +267,9 @@ void automatic()
     if ( digitalRead(btPin) == HIGH)
     {
       btConnected = true;
-      if (Serial.available() > 0)
+      if (Serial1.available() > 0)
       {
-        command = Serial.read();
+        command = Serial1.read();
         switch (command)
         {
           case 'O' : Serial.println("Lights ON");
@@ -273,7 +280,7 @@ void automatic()
             break;
           case 'A' : setAutoMode = 1; setManMode = 0;
             break;
-          case 'M' : setAutoMode = 0; setManMode = 1;
+          case 'M' : setAutoMode = 0; setManMode = 1; return ;
             break;
         }
       }
@@ -284,7 +291,7 @@ void automatic()
         readDestination();
       }
 
-      distance = measureDistance();
+      distance = avgDistance();
       printDistance(distance);
       if (distance <= 30)
       {
@@ -312,22 +319,50 @@ void automatic()
       {
         navigate();
       }
-      //delay(1000);
     }
     else
     {
-      rgbDataIndicator(5);
-      doNotMove();
-      btConnected = false;
-      Serial.println("Bluetooth is Disconnected : Connecting...");
-      while (!btConnected)
+      checkBtConnection();
+    }
+  }
+}
+
+int checkMode()
+{
+  if ( digitalRead(btPin) == HIGH)
+  {
+    btConnected = true;
+    if (Serial1.available() > 0)
+    {
+      command = Serial1.read();
+      switch (command)
       {
-        if ( digitalRead(btPin) == HIGH)
-        {
-          btConnected = true;
-          rgbDataIndicator(prevRGBStatus);
-        }
+        case 'A' : setAutoMode = 1; setManMode = 0; return 1;
+          break;
+        case 'M' : setAutoMode = 0; setManMode = 1; return 2;
+          break;
       }
+    }
+  }
+  else
+  {
+    checkBtConnection();
+  }
+  return 0;
+}
+
+void checkBtConnection()
+{
+  rgbDataIndicator(5);
+  doNotMove();
+  btConnected = false;
+  Serial.println("Bluetooth is Disconnected : Connecting...");
+  while (!btConnected)
+  {
+    if ( digitalRead(btPin) == HIGH)
+    {
+      btConnected = true;
+      rgbDataIndicator(prevRGBStatus);
     }
   }
 }
@@ -358,15 +393,21 @@ void dodgeObstacle()
     Serial.println("Taking Right Turn");
     ultraSonic_servo.write(180);
     hardRightTurn();
+    if (checkMode())
+      return;
     delay(2000);
     while ((temp = measureDistance()) < 30)
     {
       Serial.println("Moving Forward");
       moveForward();
+      if (checkMode())
+        return;
       delay(2000);
     }
     Serial.println("Taking Left Turn");
     hardLeftTurn();
+    if (checkMode())
+      return;
     delay(2000);
     Serial.println("Dodging complete");
   }
@@ -376,20 +417,25 @@ void dodgeObstacle()
     Serial.println("Taking Left Turn");
     ultraSonic_servo.write(0);
     hardLeftTurn();
+    if (checkMode())
+      return;
     delay(2000);
     while ((temp = measureDistance()) < 30)
     {
       Serial.println("Moving Forward");
       moveForward();
+      if (checkMode())
+        return;
       delay(2000);
     }
     Serial.println("Taking Right Turn");
     hardRightTurn();
+    if (checkMode())
+      return;
     delay(2000);
     Serial.println("Dodging complete");
   }
   doNotMove();
-
 }
 
 void readGPS()
@@ -397,64 +443,61 @@ void readGPS()
   gpsStatus = 0;
   dotStatus = 0;
 
-  while (gpsStatus == 0)
+  if (location.length() > 0)
   {
-    if (location.length() > 0)
+    for (i = 0; i < location.length(); i++)
     {
-      for (i = 0; i < location.length(); i++)
+      if (location[i] == '.')
       {
-        if (location[i] == '.')
+        dotStatus++;
+        if (dotStatus == 2)
         {
-          dotStatus++;
-          if (dotStatus == 2)
-          {
-            lonPos = i - 2;
-          }
+          lonPos = i - 2;
         }
       }
-      if (dotStatus == 2)
+    }
+    if (dotStatus == 2)
+    {
+      gpsStatus = 1;
+      Serial.println("Valid GPS data read");
+      rgbGpsData();
+
+      for (i = 0; i < lonPos; i++)
       {
-        gpsStatus = 1;
-        Serial.println("Valid GPS data read");
-        rgbGpsData();
-
-        for (i = 0; i < lonPos; i++)
-        {
-          stringLat.concat(location[i]);
-        }
-
-        for (i = lonPos; i < location.length(); i++)
-        {
-          stringLon.concat(location[i]);
-        }
-
-        sourceX = stringLat.toDouble();
-        sourceY = stringLon.toDouble();
-        Serial.print("Latitude : ");
-        Serial.println(sourceX, 4);
-        Serial.print("Longitude : ");
-        Serial.println(sourceY, 4);
-
-        gpsInitialized = 1;
+        stringLat.concat(location[i]);
       }
-      else
+
+      for (i = lonPos; i < location.length(); i++)
       {
-        Serial.println("Not a GPS data");
-        Serial.println("Waiting for GPS data");
-        rgbDataIndicator(4);
-        prevRGBStatus=4;
-        dotStatus = 0;
+        stringLon.concat(location[i]);
       }
+
+      sourceX = stringLat.toDouble();
+      sourceY = stringLon.toDouble();
+      Serial.println("Current position is ");
+      Serial.print("Latitude : ");
+      Serial.println(sourceX, 4);
+      Serial.print("Longitude : ");
+      Serial.println(sourceY, 4);
+
+      gpsInitialized = 1;
     }
     else
     {
+      Serial.println("Not a GPS data");
       Serial.println("Waiting for GPS data");
       rgbDataIndicator(4);
-      prevRGBStatus=4;
+      prevRGBStatus = 4;
+      dotStatus = 0;
     }
-    location = "";
-    //delay(1000);
   }
+  else
+  {
+    Serial.println("Waiting for GPS data");
+    rgbDataIndicator(4);
+    prevRGBStatus = 4;
+  }
+  location = "";
 }
 
 void readMagnetometer()
@@ -462,50 +505,46 @@ void readMagnetometer()
   magnetoStatus = 0;
   dotStatus = 0;
 
-  while (magnetoStatus == 0)
+  if (stringMag.length() > 0)
   {
-    if (stringMag.length() > 0)
+    for (i = 0; i < stringMag.length(); i++)
     {
-      for (i = 0; i < stringMag.length(); i++)
+      if (stringMag[i] == '.')
       {
-        if (stringMag[i] == '.')
-        {
-          dotStatus++;
-        }
+        dotStatus++;
       }
-      if (dotStatus == 1)
-      {
-        Serial.println("Valid Magnetometer data");
-        rgbMagData();
-        currentDir = stringMag.toDouble();
-        magnetoStatus = 1;
-      }
-      else
-      {
-        Serial.println("Not a valid Magnetometer data");
-        Serial.println("waiting for Magnetometer data");
-        rgbDataIndicator(4);
-        prevRGBStatus=4;
-        dotStatus = 0;
-      }
+    }
+    if (dotStatus == 1)
+    {
+      Serial.println("Valid Magnetometer data");
+      rgbMagData();
+      currentDir = stringMag.toDouble();
+      magnetoStatus = 1;
     }
     else
     {
-      Serial.println("Waiting for Magnetometer data");
+      Serial.println("Not a valid Magnetometer data");
+      Serial.println("waiting for Magnetometer data");
       rgbDataIndicator(4);
-      prevRGBStatus=4;
+      prevRGBStatus = 4;
+      dotStatus = 0;
     }
-    //delay(1000);
-
-    distance = measureDistance();
-    printDistance(distance);
-    if (distance <= 30)
-    {
-      rgbObsDetected();
-      dodgeObstacle();
-    }
-    rgbHeadLightToggle();
   }
+  else
+  {
+    Serial.println("Waiting for Magnetometer data");
+    rgbDataIndicator(4);
+    prevRGBStatus = 4;
+  }
+
+  distance = avgDistance();
+  printDistance(distance);
+  if (distance <= 30)
+  {
+    rgbObsDetected();
+    dodgeObstacle();
+  }
+  rgbHeadLightToggle();
 }
 
 void readDestination()
@@ -518,9 +557,10 @@ void readDestination()
     if ( digitalRead(btPin) == HIGH)
     {
       btConnected = true;
-      if (Serial.available() > 0)
+      if (Serial1.available() > 0)
       {
-        destLocation = Serial.readString();
+        destLocation = Serial1.readString();
+        Serial.println(destLocation);
         for (i = 0; i < destLocation.length(); i++)
         {
           if (destLocation[i] == '.')
@@ -552,6 +592,7 @@ void readDestination()
             setAutoMode = 0;
             setManMode = 1;
             command = 'M';
+            return  ;
           }
         }
         if (dotStatus == 2)
@@ -560,7 +601,7 @@ void readDestination()
           destStatus = 1;
           destSet = 1;
           rgbDataIndicator(3);
-          prevRGBStatus=3;
+          prevRGBStatus = 3;
 
           for (i = 0; i < lonPos; i++)
           {
@@ -593,9 +634,8 @@ void readDestination()
         Serial.println("Waiting for Destination GPS data");
         destStatus = 0;
       }
-      delay(200);
 
-      distance = measureDistance();
+      distance = avgDistance();
       printDistance(distance);
       if (distance <= 30)
       {
@@ -606,18 +646,7 @@ void readDestination()
     }
     else
     {
-      rgbDataIndicator(5);
-      doNotMove();
-      btConnected = false;
-      Serial.println("Bluetooth is Disconnected : Connecting...");
-      while (!btConnected)
-      {
-        if ( digitalRead(btPin) == HIGH)
-        {
-          btConnected = true;
-          rgbDataIndicator(prevRGBStatus);
-        }
-      }
+      checkBtConnection();
     }
   }
 }
@@ -625,25 +654,28 @@ void readDestination()
 void classifyReading()
 {
   dataStatus = 0;
-  int mBegin = 0, g = 0;
+  mBegin = 0; gBegin = 0; dot1 = 0; dot2 = 0;
   while (dataStatus == 0 && setAutoMode)
   {
     if ( digitalRead(btPin) == HIGH)
     {
-      if (Serial.available() > 0)
+      if (Serial1.available() > 0)
       {
-        Serial.println("Inside classify Reading 1");
-        Serial.setTimeout(20);
-        data = Serial.readString();
-        Serial.println("Inside classify Reading 2");
-        Serial.println(data);
+        Serial1.setTimeout(30);
+        data = Serial1.readString();
         for (i = 0; i < data.length(); i++)
         {
-          if (data[i] == 'g')
+          if ( data[i] == '.')
+          {
+            dot1 = dot2;
+            dot2 = i;
+          }
+          else if (data[i] == 'g')
           {
             gCount++;
             if (gCount == 1)
             {
+              gBegin = ((dot1 - 2) >= 0) ? (dot1 - 2) : 0 ;
               gBoundary = i - 1;
             }
           }
@@ -680,28 +712,18 @@ void classifyReading()
             setAutoMode = 0;
             setManMode = 1;
             command = 'M';
+            return ;
           }
         }
 
-        Serial.print("GPS Data Count : ");
-        Serial.println(gCount);
-        Serial.print("Mag Data Count : ");
-        Serial.println(mCount);
-
         if (gCount > 0)
         {
-          if (gBoundary - 19 >= 0)
+          for (i = gBegin; i <= gBoundary; i++)
           {
-            for (i = (gBoundary - 19); i <= gBoundary; i++)
-            {
-              location.concat(data[i]);
-            }
-            dataStatus = 1;
-            //gpsInitialized = 1;
-            Serial.println("Inside classify Reading read gps");
-            Serial.println(location);
-            readGPS();
+            location.concat(data[i]);
           }
+          dataStatus = 1;
+          readGPS();
         }
         if (mCount > 0)
         {
@@ -710,8 +732,6 @@ void classifyReading()
             stringMag.concat(data[i]);
           }
           dataStatus = 1;
-          Serial.println("Inside classify Reading read mag");
-          Serial.println(stringMag);
           readMagnetometer();
         }
       }
@@ -719,16 +739,19 @@ void classifyReading()
       {
         Serial.println("Send GPS or Magnetometer data");
         rgbDataIndicator(4);
-        prevRGBStatus=4;
+        prevRGBStatus = 4;
       }
       gCount = 0;
       mCount = 0;
       location = "";
       stringMag = "";
       data = "";
-      //delay(1000);
+      mBegin = 0;
+      gBegin = 0;
+      dot1 = 0;
+      dot2 = 0;
 
-      distance = measureDistance();
+      distance = avgDistance();
       printDistance(distance);
       if (distance <= 30)
       {
@@ -739,18 +762,7 @@ void classifyReading()
     }
     else
     {
-      rgbDataIndicator(5);
-      doNotMove();
-      btConnected = false;
-      Serial.println("Bluetooth is Disconnected : Connecting...");
-      while (!btConnected)
-      {
-        if ( digitalRead(btPin) == HIGH)
-        {
-          btConnected = true;
-          rgbDataIndicator(prevRGBStatus);
-        }
-      }
+      checkBtConnection();
     }
   }
 }
@@ -780,21 +792,21 @@ void navigate()
   {
     if (dir >= 0 && dir <= 10)
     {
-      //steering_servo.write(90); // move straight for +/- 10deg
+      // move straight for +/- 10deg
       Serial.println("Steering Straight");
       moveForward();
 
     }
     else if (dir > 10 && dir <= 90)
     {
-      steerAngle = ((dir - 10) / 4) + 90;
-      //steering_servo.write(steerAngle); //soft right turn : destination lies in 1st quadrant
+      //soft right turn : destination lies in 1st quadrant
+      steerAngle = ((dir - 10) / 4) + CENTER;
       Serial.println("Driving towards target");
       driveToTarget(steerAngle);
     }
     else
     {
-      //steering_servo.write(110); //hard right turn : destination lies in 2nd quadrant
+      //hard right turn : destination lies in 2nd quadrant
       Serial.println("Steering Right");
       hardRightTurn();
     }
@@ -803,20 +815,20 @@ void navigate()
   {
     if (dir < 0 && dir >= -10)
     {
-      //steering_servo.write(90); // move straight for +/- 10deg
+      // move straight for +/- 10deg
       Serial.println("Steering Straight");
       moveForward();
     }
     else if (dir < -10 && dir >= -90)
     {
-      steerAngle = ((dir + 10) / 4) + 90;
-      //steering_servo.write(steerAngle); // soft left turn : destination lies in 4th quadrant
+      // soft left turn : destination lies in 4th quadrant
+      steerAngle = ((dir + 10) / 4) + CENTER;
       Serial.println("Driving towards target");
       driveToTarget(steerAngle);
     }
     else
     {
-      //steering_servo.write(70); //hard left turn : destination lies in 3rd quadrant
+      //hard left turn : destination lies in 3rd quadrant
       Serial.println("Steering Left");
       hardLeftTurn();
     }
@@ -851,11 +863,6 @@ void rgbHeadLightToggle()
     analogWrite(hRedPin, 0);
     analogWrite(hGreenPin, 0);
     analogWrite(hBluePin, 0);
-    /*delay(200);
-      analogWrite(hRedPin, 255);
-      analogWrite(hGreenPin, 255);
-      analogWrite(hBluePin, 0);
-      delay(200);*/
   }
 }
 void rgbObsDetected()
@@ -881,7 +888,7 @@ void rgbMagData()
   analogWrite(dRedPin, 0);
   analogWrite(dGreenPin, 255);
   analogWrite(dBluePin, 0);
-  delay(200);
+  delay(100);
 }
 void rgbDataIndicator(int rgbStatus)
 {
@@ -899,9 +906,9 @@ void rgbDataIndicator(int rgbStatus)
       analogWrite(dGreenPin, 0);
       analogWrite(dBluePin, 0);
       break;
-    case 3: analogWrite(dRedPin, 0);      //automatic mode destination set - Color : orange
-      analogWrite(dGreenPin, 128);
-      analogWrite(dBluePin, 255);
+    case 3: analogWrite(dRedPin, 255);      //automatic mode destination set - Color : green
+      analogWrite(dGreenPin, 0);
+      analogWrite(dBluePin, 255); delay(200);
       break;
     case 4: analogWrite(dRedPin, 0);      //waiting for gps/mag data - Color : yellow
       analogWrite(dGreenPin, 0);
@@ -916,21 +923,16 @@ void rgbDataIndicator(int rgbStatus)
       analogWrite(dBluePin, 255);
       break;
   }
-
-  //analogWrite(dRedPin, 0);      //waiting for gps/mag data - Color : yellow
-  //analogWrite(dGreenPin, 0);
-  //analogWrite(dBluePin, 255);
-  //delay(50);
 }
 
 void setup()
 {
   Serial.begin(9600);
-
+  Serial1.begin(9600);
   steering_servo.attach(9); //For Steering
   ultraSonic_servo.attach(10); //For ultrasonic
 
-  steering_servo.write(90);
+  steering_servo.write(CENTER);
   ultraSonic_servo.write(90);
 
   pinMode(trigPin, OUTPUT);
@@ -953,7 +955,7 @@ void setup()
   motorRight.run(RELEASE);
   motorLeft.run(RELEASE);
 
-  Serial.println("Connect Bluetooth to Android device");
+  Serial.println("Connect Android Device to Bluetooth");
   while (!btConnected)
   {
     rgbDataIndicator(5);
@@ -970,39 +972,27 @@ void loop()
     if ( digitalRead(btPin) == HIGH)
     {
       btConnected = true;
-      delay(200);
-      if (Serial.available() > 0)
+      if (Serial1.available() > 0)
       {
-        command = Serial.read();
+        command = Serial1.read();
         flag = 1;
       }
       else
       {
         Serial.println("Waiting for Mode Selection");
-        prevRGBStatus=0;
+        prevRGBStatus = 0;
         rgbDataIndicator(0);
         flag = 0;
       }
     }
     else
     {
-      rgbDataIndicator(5);
-      doNotMove();
-      btConnected = false;
-      Serial.println("Bluetooth is Disconnected : Connecting...");
-      while (!btConnected)
-      {
-        if ( digitalRead(btPin) == HIGH)
-        {
-          btConnected = true;
-          rgbDataIndicator(prevRGBStatus);
-        }
-      }
+      checkBtConnection();
     }
   }
   if (command == 'M')
   {
-    Serial.println("Car Set to manual Mode");
+    Serial.println("Car Set to Manual Mode");
     manual();
   }
   else if (command == 'A')
